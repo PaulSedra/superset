@@ -125,6 +125,8 @@ export default function transformProps(
       },
       links,
       type: 'sankey',
+      nodeAlign: 'left',
+      layoutIterations: 0,
     },
     tooltip: {
       ...getDefaultTooltip(refs),
