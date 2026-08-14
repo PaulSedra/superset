@@ -45,6 +45,26 @@ import {
 } from './types';
 import { getDefaultTooltip } from '../utils/tooltip';
 
+function lightenColor(color: string, amount: number): string {
+  const hex = color.replace('#', '');
+
+  // Fall back to the original color if it's not a normal hex color.
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return color;
+  }
+
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+
+  const lighten = (channel: number) =>
+    Math.round(channel + (255 - channel) * amount);
+
+  return `#${lighten(r).toString(16).padStart(2, '0')}${lighten(g)
+    .toString(16)
+    .padStart(2, '0')}${lighten(b).toString(16).padStart(2, '0')}`;
+}
+
 export function getLinearDomain(
   treeData: TreeNode[],
   callback: (treeNode: TreeNode) => number,
@@ -304,6 +324,25 @@ export default function transformProps(
         }),
       });
       const newPath = path.concat(name);
+
+      const depth = path.length;
+
+      // At depth 0, this node is the category.
+      // At deeper levels, path[0] is the top-level category.
+      const rootCategory = depth === 0 ? name : path[0];
+
+      const rootColor = categoricalColorScale(rootCategory, sliceId);
+
+      // Increase lightness with each level.
+      // depth 0 = original
+      // depth 1 = 18% lighter
+      // depth 2 = 36% lighter
+      // depth 3 = 54% lighter
+      const nodeColor =
+        depth === 0
+          ? rootColor
+          : lightenColor(rootColor, Math.min(depth * 0.18, 0.65));
+
       let item: NodeItemOption = {
         records,
         name,
@@ -311,7 +350,7 @@ export default function transformProps(
         secondaryValue,
         itemStyle: {
           color: colorByCategory
-            ? categoricalColorScale(name, sliceId)
+            ? nodeColor
             : linearColorScale(secondaryValue / value),
         },
       };
