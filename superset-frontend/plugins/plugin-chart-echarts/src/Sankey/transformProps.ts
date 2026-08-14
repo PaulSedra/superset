@@ -63,18 +63,118 @@ export default function transformProps(
     });
   });
 
-  const seriesData: NonNullable<SankeySeriesOption['data']> = Array.from(
-    set,
-  ).map(name => ({
-    name,
-    itemStyle: {
-      color: colorFn(name, sliceId),
-    },
-    label: {
-      color: theme.colorText,
-      textShadow: theme.colorBgBase,
-    },
-  }));
+  /*
+   * Build the Sankey node order from the hierarchy instead of allowing
+   * nodes at the same depth to be globally ordered by size.
+   *
+   * Children remain grouped under their parent, while children within
+   * each parent are ordered from largest to smallest.
+   */
+
+  const targets = new Set<string>();
+  const childrenByParent = new Map<string, Set<string>>();
+  const valuesByParent = new Map<string, Map<string, number>>();
+
+  links.forEach(link => {
+    const { source, target, value } = link;
+
+    targets.add(target);
+
+    if (!childrenByParent.has(source)) {
+      childrenByParent.set(source, new Set<string>());
+    }
+
+    childrenByParent.get(source)!.add(target);
+
+    if (!valuesByParent.has(source)) {
+      valuesByParent.set(source, new Map<string, number>());
+    }
+
+    const childValues = valuesByParent.get(source)!;
+
+    childValues.set(
+      target,
+      (childValues.get(target) ?? 0) + value,
+    );
+  });
+
+  const getSortedChildren = (parent: string): string[] => {
+    const children = childrenByParent.get(parent);
+
+    if (!children) {
+      return [];
+    }
+
+    const childValues = valuesByParent.get(parent);
+
+    return Array.from(children).sort(
+      (a, b) =>
+        (childValues?.get(b) ?? 0) -
+        (childValues?.get(a) ?? 0),
+    );
+  };
+
+  // Root nodes are nodes which are never the target of another link.
+  const roots = Array.from(set).filter(name => !targets.has(name));
+
+  const orderedNames: string[] = [];
+  const visited = new Set<string>();
+
+  let currentLevel = roots;
+
+  while (currentLevel.length > 0) {
+    /*
+     * Add all nodes at the current depth first.
+     *
+     * Their order was determined by their respective parents during
+     * the previous iteration.
+     */
+    currentLevel.forEach(name => {
+      if (!visited.has(name)) {
+        orderedNames.push(name);
+        visited.add(name);
+      }
+    });
+
+    // Build the next level parent-by-parent.
+    const nextLevel: string[] = [];
+    const queued = new Set<string>();
+
+    currentLevel.forEach(parent => {
+      const children = getSortedChildren(parent);
+
+      children.forEach(child => {
+        if (!visited.has(child) && !queued.has(child)) {
+          nextLevel.push(child);
+          queued.add(child);
+        }
+      });
+    });
+
+    currentLevel = nextLevel;
+  }
+
+  /*
+   * Safety fallback for any nodes that were not reachable from a root,
+   * such as unusual graph structures.
+   */
+  Array.from(set).forEach(name => {
+    if (!visited.has(name)) {
+      orderedNames.push(name);
+    }
+  });
+
+  const seriesData: NonNullable<SankeySeriesOption['data']> =
+    orderedNames.map(name => ({
+      name,
+      itemStyle: {
+        color: colorFn(name, sliceId),
+      },
+      label: {
+        color: theme.colorText,
+        textShadow: theme.colorBgBase,
+      },
+    }));
 
   // stores a map with the total values for each node considering the links
   const incomingFlows = new Map<string, number>();
